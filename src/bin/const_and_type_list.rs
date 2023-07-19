@@ -25,7 +25,8 @@ impl Len for Nil {
     const LEN: usize = 0;
 }
 impl<H, T> Len for Cons<H, T>
-where T: Len
+where
+    T: Len,
 {
     const LEN: usize = 1 + T::LEN;
 }
@@ -39,7 +40,8 @@ impl Sum<usize> for Nil {
     }
 }
 impl<T> Sum<usize> for Cons<usize, T>
-where T: Sum<usize>
+where
+    T: Sum<usize>,
 {
     fn sum(&self) -> usize {
         self.head + self.tail.sum()
@@ -59,7 +61,7 @@ impl ConstSum for Nil {
 impl<H, T> ConstSum for Cons<H, T>
 where
     H: ConstSum,
-    T: ConstSum
+    T: ConstSum,
 {
     const SUM: usize = H::SUM + T::SUM;
 }
@@ -67,23 +69,21 @@ impl<const N: usize> ConstSum for ConstUsize<N> {
     const SUM: usize = N;
 }
 
-
 #[allow(dead_code)]
 mod compilation_stack_overflow {
     use super::*;
 
     trait Fold<H, T> {
         type Output;
-        
+
         fn fold(cons: Cons<H, T>) -> Self::Output;
     }
 
     struct SumFolder<T>(PhantomData<T>);
 
-    impl Fold<usize, Nil> for SumFolder<Nil>
-    {
+    impl Fold<usize, Nil> for SumFolder<Nil> {
         type Output = usize;
-        
+
         fn fold(cons: Cons<usize, Nil>) -> Self::Output {
             cons.head
         }
@@ -95,7 +95,7 @@ mod compilation_stack_overflow {
         usize: Add<<SumFolder<T> as Fold<usize, T>>::Output>,
     {
         type Output = <usize as Add<<SumFolder<T> as Fold<usize, T>>::Output>>::Output;
-        
+
         fn fold(cons: Cons<usize, Cons<usize, T>>) -> Self::Output {
             cons.head + SumFolder::<T>::fold(cons.tail)
         }
@@ -115,6 +115,9 @@ fn main() {
     println!("list.len() = {}", len(&list));
     println!("sum(list) = {}", list.sum());
 
-    let usize_list = cons(ConstUsize::<1>, cons(ConstUsize::<2>, cons(ConstUsize::<3>, Nil)));
+    let usize_list = cons(
+        ConstUsize::<1>,
+        cons(ConstUsize::<2>, cons(ConstUsize::<3>, Nil)),
+    );
     println!("const_sum(usize_list) = {}", const_sum(&usize_list));
 }
