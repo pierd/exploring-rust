@@ -16,6 +16,10 @@ tokio = { version = "1.0", features = ["macros", "net", "process", "rt-multi-thr
 criterion = { version = "0.5.1", features = ["async", "async_tokio"] }
 
 [[bench]]
+name = "dyndispatch"
+harness = false
+
+[[bench]]
 name = "rand"
 harness = false
 
