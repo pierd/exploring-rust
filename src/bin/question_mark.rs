@@ -19,7 +19,7 @@ fn main() -> Result<(), String> {
     let x = xtry!(ok(1));
     println!("x = {}", x);
 
-    let _ = xtry!(err("boom!"));
+    xtry!(err("boom!"));
 
     unreachable!()
 }
