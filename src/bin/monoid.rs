@@ -48,6 +48,20 @@ impl Monoid for Mul {
     }
 }
 
+struct Max;
+impl Semigroup for Max {
+    type T = usize;
+
+    fn append(a: usize, b: usize) -> usize {
+        a.max(b)
+    }
+}
+impl Monoid for Max {
+    fn identity() -> usize {
+        usize::MIN
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct VecAppend<T>(std::marker::PhantomData<T>);
 impl<T> Semigroup for VecAppend<T> {
@@ -157,6 +171,45 @@ where
 {
     fn identity() -> Self::T {
         Rc::new(|_| B::identity())
+    }
+}
+
+struct ComposeEndomorphism<A>(std::marker::PhantomData<A>);
+impl<A> Semigroup for ComposeEndomorphism<A>
+where
+    A: Semigroup,
+    A::T: 'static,
+{
+    type T = Rc<dyn Fn(A::T) -> A::T>;
+
+    fn append(a: Self::T, b: Self::T) -> Self::T {
+        Rc::new(move |x| a(b(x)))
+    }
+}
+impl<A> Monoid for ComposeEndomorphism<A>
+where
+    A: Monoid,
+    A::T: 'static,
+{
+    fn identity() -> Self::T {
+        Rc::new(|_| A::identity())
+    }
+}
+
+impl<A: Semigroup> Semigroup for Option<A> {
+    type T = Option<A::T>;
+
+    fn append(a: Self::T, b: Self::T) -> Self::T {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(A::append(a, b)),
+            (Some(a), None) | (None, Some(a)) => Some(a),
+            (None, None) => None,
+        }
+    }
+}
+impl<A: Semigroup> Monoid for Option<A> {
+    fn identity() -> Self::T {
+        None
     }
 }
 
@@ -274,5 +327,11 @@ mod tests {
         for i in 0..10 {
             assert_eq!(x(i), y(i));
         }
+    }
+
+    #[quickcheck]
+    fn test_option(a: Option<usize>, b: Option<usize>, c: Option<usize>) {
+        check_identity::<Option<Max>>(a.clone());
+        check_associative::<Option<Max>>(a, b, c);
     }
 }
