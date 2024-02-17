@@ -79,10 +79,7 @@ impl Monoid for StringAppend {
     }
 }
 
-impl<A> Semigroup for (A,)
-where
-    A: Semigroup,
-{
+impl<A: Semigroup> Semigroup for (A,) {
     type T = (A::T,);
 
     fn append(a: Self::T, b: Self::T) -> Self::T {
@@ -121,10 +118,19 @@ where
     type T = (A::T, B::T, C::T);
 
     fn append(a: Self::T, b: Self::T) -> Self::T {
-        (A::append(a.0, b.0), B::append(a.1, b.1), C::append(a.2, b.2))
+        (
+            A::append(a.0, b.0),
+            B::append(a.1, b.1),
+            C::append(a.2, b.2),
+        )
     }
 }
-impl<A: Monoid, B: Monoid, C: Monoid> Monoid for (A, B, C) {
+impl<A, B, C> Monoid for (A, B, C)
+where
+    A: Monoid,
+    B: Monoid,
+    C: Monoid,
+{
     fn identity() -> Self::T {
         (A::identity(), B::identity(), C::identity())
     }
@@ -174,7 +180,10 @@ mod tests {
     where
         A::T: Clone + std::fmt::Debug + PartialEq + Eq,
     {
-        assert_eq!(A::append(A::append(a.clone(), b.clone()), c.clone()), A::append(a, A::append(b, c)));
+        assert_eq!(
+            A::append(A::append(a.clone(), b.clone()), c.clone()),
+            A::append(a, A::append(b, c))
+        );
     }
 
     fn overflows_mul(a: usize, b: usize, c: usize) -> bool {
@@ -224,7 +233,7 @@ mod tests {
             // just skip overflows
             return;
         }
-        check_associative::<(Add, Mul)>((a, b,), (c, d), (e, f));
+        check_associative::<(Add, Mul)>((a, b), (c, d), (e, f));
     }
 
     #[quickcheck]
@@ -238,7 +247,11 @@ mod tests {
             // just skip overflows
             return;
         }
-        check_associative::<(Add, Mul, VecAppend<usize>)>((a, a, x.clone()), (b, b, y.clone()), (c, c, z.clone()));
+        check_associative::<(Add, Mul, VecAppend<usize>)>(
+            (a, a, x.clone()),
+            (b, b, y.clone()),
+            (c, c, z.clone()),
+        );
     }
 
     #[test]
@@ -248,12 +261,14 @@ mod tests {
         let b = Rc::new(|x| x * 5);
         let c = Rc::new(|x| x * x);
 
+        // checking by hand because we can't really check functions for equality
         let x = M::append(a.clone(), M::identity());
         let y = M::append(M::identity(), a.clone());
         for i in 0..10 {
             assert_eq!(x(i), y(i));
         }
 
+        // checking by hand because we can't really check functions for equality
         let x = M::append(M::append(a.clone(), b.clone()), c.clone());
         let y = M::append(a.clone(), M::append(b.clone(), c.clone()));
         for i in 0..10 {

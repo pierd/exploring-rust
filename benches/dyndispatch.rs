@@ -1,4 +1,4 @@
-use std::{vec, marker::PhantomData};
+use std::{marker::PhantomData, vec};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -64,7 +64,9 @@ pub fn chained_dispatch(c: &mut Criterion) {
     let dispatcher = dispatcher.add(DummyDispatched);
     let dispatcher = dispatcher.add(DummyDispatched);
     let dispatcher = dispatcher.add(DummyDispatched);
-    c.bench_function("chained dispatch", |b| b.iter(|| dispatcher.dispatch(&data)));
+    c.bench_function("chained dispatch", |b| {
+        b.iter(|| dispatcher.dispatch(&data))
+    });
 }
 
 criterion_group!(benches, dyn_dispatch, chained_dispatch);
