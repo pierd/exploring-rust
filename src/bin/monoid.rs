@@ -25,7 +25,8 @@ impl Semigroup for Add {
     type T = usize;
 
     fn append(a: usize, b: usize) -> usize {
-        a + b
+        // saturating so we don't have to worry about overflows
+        a.saturating_add(b)
     }
 }
 impl Monoid for Add {
@@ -39,7 +40,8 @@ impl Semigroup for Mul {
     type T = usize;
 
     fn append(a: usize, b: usize) -> usize {
-        a * b
+        // saturating so we don't have to worry about overflows
+        a.saturating_mul(b)
     }
 }
 impl Monoid for Mul {
@@ -150,6 +152,8 @@ where
     }
 }
 
+type Fun<Args, Return> = Rc<dyn Fn(Args) -> Return>;
+
 struct TraverseFn<A, B>(std::marker::PhantomData<(A, B)>);
 impl<A, B> Semigroup for TraverseFn<A, B>
 where
@@ -157,7 +161,7 @@ where
     B: Monoid,
     B::T: 'static,
 {
-    type T = Rc<dyn Fn(A) -> B::T>;
+    type T = Fun<A, B::T>;
 
     fn append(a: Self::T, b: Self::T) -> Self::T {
         Rc::new(move |x| B::append(a(x.clone()), b(x)))
@@ -174,13 +178,14 @@ where
     }
 }
 
+type Endomorphism<A> = Fun<A, A>;
+
 struct ComposeEndomorphism<A>(std::marker::PhantomData<A>);
 impl<A> Semigroup for ComposeEndomorphism<A>
 where
-    A: Semigroup,
-    A::T: 'static,
+    A: 'static,
 {
-    type T = Rc<dyn Fn(A::T) -> A::T>;
+    type T = Endomorphism<A>;
 
     fn append(a: Self::T, b: Self::T) -> Self::T {
         Rc::new(move |x| a(b(x)))
@@ -188,11 +193,10 @@ where
 }
 impl<A> Monoid for ComposeEndomorphism<A>
 where
-    A: Monoid,
-    A::T: 'static,
+    A: 'static,
 {
     fn identity() -> Self::T {
-        Rc::new(|_| A::identity())
+        Rc::new(|x| x)
     }
 }
 
@@ -217,6 +221,7 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
+    use quickcheck::{Arbitrary, Gen, TestResult, Testable};
     use quickcheck_macros::quickcheck;
 
     use super::*;
@@ -239,28 +244,69 @@ mod tests {
         );
     }
 
-    fn overflows_mul(a: usize, b: usize, c: usize) -> bool {
-        a.checked_mul(b).and_then(|ab| ab.checked_mul(c)).is_none() || c.checked_mul(b).is_none()
+    struct EqualFunTestable<Args, Return> {
+        f: Fun<Args, Return>,
+        g: Fun<Args, Return>,
+    }
+    impl<Args, Return> EqualFunTestable<Args, Return>
+    where
+        Args: Arbitrary + Clone,
+        Return: PartialEq,
+    {
+        fn check(&self, x: Args) -> bool {
+            (self.f)(x.clone()) == (self.g)(x)
+        }
+
+        fn shrink_failure(
+            &self,
+            g: &mut Gen,
+            args: Args,
+        ) -> Option<TestResult> {
+            for t in args.shrink() {
+                let new_args = t.clone();
+                let r = self.check(new_args).result(g);
+                if r.is_failure() {
+                    // The shrunk value *does* witness a failure, so keep
+                    // trying to shrink it.
+                    let shrunk = self.shrink_failure(g, t);
+
+                    // If we couldn't witness a failure on any shrunk value,
+                    // then return the failure we already have.
+                    return Some(shrunk.unwrap_or(r))
+                }
+            }
+            None
+        }
+    }
+    impl<Args, Return> Testable for EqualFunTestable<Args, Return>
+    where
+        Args: Arbitrary + std::fmt::Debug + 'static,
+        Return: PartialEq + std::fmt::Debug + 'static,
+    {
+        fn result(&self, g: &mut Gen) -> TestResult {
+            let args: Args = Arbitrary::arbitrary(g);
+            let r = self.check(args.clone()).result(g);
+            if r.is_failure() {
+                return self.shrink_failure(g, args).unwrap_or(r);
+            }
+            r
+        }
+    }
+
+    fn check_fun_equality(f: Fun<usize, usize>, g: Fun<usize, usize>) {
+        ::quickcheck::quickcheck(EqualFunTestable { f, g });
     }
 
     #[quickcheck]
     fn test_add(a: usize, b: usize, c: usize) {
         check_identity::<Add>(a);
-        if a.checked_add(b).and_then(|ab| ab.checked_add(c)).is_none() {
-            // just skip overflows
-            return;
-        }
         check_associative::<Add>(a, b, c);
     }
 
     #[quickcheck]
     fn test_mul(a: usize, b: usize, c: usize) {
         check_identity::<Mul>(a);
-        if overflows_mul(a, b, c) {
-            // just skip overflows
-            return;
-        }
-        check_associative::<Mul>(2, 3, 4);
+        check_associative::<Mul>(a, b, c);
     }
 
     #[quickcheck]
@@ -278,28 +324,12 @@ mod tests {
     #[quickcheck]
     fn test_tuple(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize) {
         check_identity::<(Add, Mul)>((a, b));
-        if a.checked_add(c).and_then(|ac| ac.checked_add(e)).is_none() {
-            // just skip overflows
-            return;
-        }
-        if overflows_mul(b, d, f) {
-            // just skip overflows
-            return;
-        }
         check_associative::<(Add, Mul)>((a, b), (c, d), (e, f));
     }
 
     #[quickcheck]
     fn test_tuple3(a: usize, b: usize, c: usize, x: Vec<usize>, y: Vec<usize>, z: Vec<usize>) {
         check_identity::<(Add, Mul, VecAppend<usize>)>((a, a, x.clone()));
-        if a.checked_add(b).and_then(|ab| ab.checked_add(c)).is_none() {
-            // just skip overflows
-            return;
-        }
-        if overflows_mul(a, b, c) {
-            // just skip overflows
-            return;
-        }
         check_associative::<(Add, Mul, VecAppend<usize>)>(
             (a, a, x.clone()),
             (b, b, y.clone()),
@@ -310,23 +340,39 @@ mod tests {
     #[test]
     fn test_traverse_fn() {
         type M = TraverseFn<usize, Add>;
-        let a = Rc::new(|x| x + 1);
-        let b = Rc::new(|x| x * 5);
-        let c = Rc::new(|x| x * x);
+        // saturating so we don't have to worry about overflows
+        let a = Rc::new(|x: usize| x.saturating_add(1));
+        let b = Rc::new(|x: usize| x.saturating_mul(5));
+        let c = Rc::new(|x: usize| x.saturating_mul(x));
 
         // checking by hand because we can't really check functions for equality
         let x = M::append(a.clone(), M::identity());
         let y = M::append(M::identity(), a.clone());
-        for i in 0..10 {
-            assert_eq!(x(i), y(i));
-        }
+        check_fun_equality(x, y);
 
         // checking by hand because we can't really check functions for equality
         let x = M::append(M::append(a.clone(), b.clone()), c.clone());
         let y = M::append(a.clone(), M::append(b.clone(), c.clone()));
-        for i in 0..10 {
-            assert_eq!(x(i), y(i));
-        }
+        check_fun_equality(x, y)
+    }
+
+    #[test]
+    fn test_compose_endo() {
+        type M = ComposeEndomorphism<usize>;
+        // saturating so we don't have to worry about overflows
+        let a = Rc::new(|x: usize| x.saturating_add(1));
+        let b = Rc::new(|x: usize| x.saturating_mul(5));
+        let c = Rc::new(|x: usize| x.saturating_mul(x));
+
+        // checking by hand because we can't really check functions for equality
+        let x = M::append(a.clone(), M::identity());
+        let y = M::append(M::identity(), a.clone());
+        check_fun_equality(x, y);
+
+        // checking by hand because we can't really check functions for equality
+        let x = M::append(M::append(a.clone(), b.clone()), c.clone());
+        let y = M::append(a.clone(), M::append(b.clone(), c.clone()));
+        check_fun_equality(x, y)
     }
 
     #[quickcheck]
