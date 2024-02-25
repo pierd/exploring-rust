@@ -95,6 +95,21 @@ impl Monoid for StringAppend {
     }
 }
 
+impl Semigroup for () {
+    type T = ();
+
+    #[allow(clippy::unused_unit)]
+    fn append((): Self::T, (): Self::T) -> Self::T {
+        ()
+    }
+}
+impl Monoid for () {
+    #[allow(clippy::unused_unit)]
+    fn identity() -> Self::T {
+        ()
+    }
+}
+
 impl<A: Semigroup> Semigroup for (A,) {
     type T = (A::T,);
 
@@ -257,11 +272,7 @@ mod tests {
             (self.f)(x.clone()) == (self.g)(x)
         }
 
-        fn shrink_failure(
-            &self,
-            g: &mut Gen,
-            args: Args,
-        ) -> Option<TestResult> {
+        fn shrink_failure(&self, g: &mut Gen, args: Args) -> Option<TestResult> {
             for t in args.shrink() {
                 let new_args = t.clone();
                 let r = self.check(new_args).result(g);
@@ -272,7 +283,7 @@ mod tests {
 
                     // If we couldn't witness a failure on any shrunk value,
                     // then return the failure we already have.
-                    return Some(shrunk.unwrap_or(r))
+                    return Some(shrunk.unwrap_or(r));
                 }
             }
             None
@@ -319,6 +330,12 @@ mod tests {
     fn test_string_append(a: String, b: String, c: String) {
         check_identity::<StringAppend>(a.clone());
         check_associative::<StringAppend>(a, b, c);
+    }
+
+    #[test]
+    fn test_unit() {
+        check_identity::<()>(());
+        check_associative::<()>((), (), ());
     }
 
     #[quickcheck]
