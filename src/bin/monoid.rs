@@ -18,6 +18,13 @@ trait Monoid: Semigroup {
         }
         res
     }
+
+    fn accumulate<I>(iter: I) -> Self::T
+    where
+        I: IntoIterator<Item = Self::T>,
+    {
+        iter.into_iter().fold(Self::identity(), Self::append)
+    }
 }
 
 struct Add;
